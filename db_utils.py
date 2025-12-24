@@ -1,0 +1,166 @@
+import sqlite3
+import pandas as pd
+from datetime import datetime
+
+DB_NAME = "vessels.db"
+
+def get_connection():
+    return sqlite3.connect(DB_NAME)
+
+def init_db():
+    conn = get_connection()
+    c = conn.cursor()
+    
+    # Create Vessels table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS vessels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            imo_number TEXT
+        )
+    ''')
+    
+    # Create Voyages table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS voyages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vessel_id INTEGER NOT NULL,
+            voyage_number TEXT NOT NULL,
+            service_name TEXT,
+            FOREIGN KEY (vessel_id) REFERENCES vessels (id)
+        )
+    ''')
+    
+    # Create ENS Entries table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS ens_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            voyage_id INTEGER NOT NULL,
+            port TEXT NOT NULL,
+            arrival_date DATE NOT NULL,
+            is_declared BOOLEAN DEFAULT 0,
+            uploaded_files TEXT,
+            FOREIGN KEY (voyage_id) REFERENCES voyages (id)
+        )
+    ''')
+    
+    # Migration: Check if uploaded_files exists
+    c.execute("PRAGMA table_info(ens_entries)")
+    columns = [info[1] for info in c.fetchall()]
+    if "uploaded_files" not in columns:
+        c.execute("ALTER TABLE ens_entries ADD COLUMN uploaded_files TEXT")
+        print("Migrated: Added uploaded_files column to ens_entries")
+    
+    conn.commit()
+    conn.close()
+
+def add_vessel(name, imo_number):
+    conn = get_connection()
+    c = conn.cursor()
+    try:
+        c.execute("INSERT INTO vessels (name, imo_number) VALUES (?, ?)", (name, imo_number))
+        conn.commit()
+        return True, "Vessel added successfully."
+    except sqlite3.IntegrityError:
+        return False, "Vessel with this name already exists."
+    finally:
+        conn.close()
+
+def delete_vessel(name):
+    conn = get_connection()
+    c = conn.cursor()
+    # Check if used? For now, we just delete. The Inner Join in view will hide orphans.
+    # Better: Cascading delete manually if we want to be clean, but user might want to keep history?
+    # User just asked to remove from list.
+    # Let's delete the vessel.
+    c.execute("DELETE FROM vessels WHERE name = ?", (name,))
+    rows = c.rowcount
+    conn.commit()
+    conn.close()
+    return rows > 0, "Vessel deleted." if rows > 0 else "Vessel not found."
+
+def get_vessels():
+    conn = get_connection()
+    df = pd.read_sql_query("SELECT * FROM vessels", conn)
+    conn.close()
+    return df
+
+def add_voyage(vessel_id, voyage_number, service_name):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("INSERT INTO voyages (vessel_id, voyage_number, service_name) VALUES (?, ?, ?)", 
+              (vessel_id, voyage_number, service_name))
+    voyage_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return voyage_id
+
+def add_ens_entry(voyage_id, port, arrival_date, uploaded_files=""):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("INSERT INTO ens_entries (voyage_id, port, arrival_date, is_declared, uploaded_files) VALUES (?, ?, ?, 0, ?)", 
+              (voyage_id, port, arrival_date, uploaded_files))
+    conn.commit()
+    conn.close()
+
+def get_voyages_with_details():
+    conn = get_connection()
+    query = '''
+        SELECT 
+            v.id as voyage_id,
+            ves.name as vessel_name,
+            v.voyage_number,
+            v.service_name,
+            e.id as entry_id,
+            e.port,
+            e.arrival_date,
+            e.is_declared,
+            e.uploaded_files
+        FROM voyages v
+        JOIN vessels ves ON v.vessel_id = ves.id
+        LEFT JOIN ens_entries e ON v.id = e.voyage_id
+        ORDER BY e.arrival_date DESC
+    '''
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+    return df
+
+def update_declaration_status(entry_id, status):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("UPDATE ens_entries SET is_declared = ? WHERE id = ?", (status, entry_id))
+    conn.commit()
+    conn.close()
+
+def delete_entry(entry_id):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM ens_entries WHERE id = ?", (entry_id,))
+    conn.commit()
+    conn.commit()
+    conn.close()
+
+def update_ens_entry(entry_id, port, arrival_date, uploaded_files=None):
+    conn = get_connection()
+    c = conn.cursor()
+    if uploaded_files is not None:
+        c.execute("UPDATE ens_entries SET port = ?, arrival_date = ?, uploaded_files = ? WHERE id = ?", (port, arrival_date, uploaded_files, entry_id))
+    else:
+        c.execute("UPDATE ens_entries SET port = ?, arrival_date = ? WHERE id = ?", (port, arrival_date, entry_id))
+    conn.commit()
+    conn.close()
+
+def update_voyage(voyage_id, voyage_number, service_name=None):
+    conn = get_connection()
+    c = conn.cursor()
+    if service_name:
+         c.execute("UPDATE voyages SET voyage_number = ?, service_name = ? WHERE id = ?", (voyage_number, service_name, voyage_id))
+    else:
+         c.execute("UPDATE voyages SET voyage_number = ? WHERE id = ?", (voyage_number, voyage_id))
+    conn.commit()
+    conn.close()
+
+# Initialize DB on import
+if __name__ == "__main__":
+    init_db()
+    print("Database initialized.")
