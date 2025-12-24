@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import db_utils
 from datetime import datetime
 import pandas as pd
@@ -21,7 +21,7 @@ class VesselApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Vessel ENS Tracker")
-        self.geometry("800x600")
+        self.geometry("1000x700") # Increased size to fit filters
         
         # Init DB
         db_utils.init_db()
@@ -96,31 +96,35 @@ class VesselApp(tk.Tk):
         filter_frame = ttk.LabelFrame(frame, text="Filters", padding=10)
         filter_frame.pack(fill='x', pady=(0, 10))
         
-        # Row 1 of filters
-        # Search
-        ttk.Label(filter_frame, text="Search (Vessel/Voyage):").grid(row=0, column=0, padx=5, sticky="w")
+        # Row 1: Search and specific filters
+        ttk.Label(filter_frame, text="Search:").grid(row=0, column=0, padx=5, sticky="w")
         self.search_var = tk.StringVar()
         self.search_var.trace("w", lambda name, index, mode: self.load_voyages())
         search_entry = ttk.Entry(filter_frame, textvariable=self.search_var)
         search_entry.grid(row=0, column=1, padx=5, sticky="ew")
         
-        # Port Filter
-        ttk.Label(filter_frame, text="Filter Port:").grid(row=0, column=2, padx=5, sticky="w")
+        ttk.Label(filter_frame, text="Port:").grid(row=0, column=2, padx=5, sticky="w")
         self.port_filter_var = tk.StringVar()
-        port_cb = ttk.Combobox(filter_frame, textvariable=self.port_filter_var, values=["All"] + COMMON_PORTS, state="readonly")
+        port_cb = ttk.Combobox(filter_frame, textvariable=self.port_filter_var, values=["All"] + COMMON_PORTS, state="readonly", width=10)
         port_cb.grid(row=0, column=3, padx=5, sticky="ew")
         port_cb.bind("<<ComboboxSelected>>", lambda e: self.load_voyages())
         port_cb.current(0)
+
+        ttk.Label(filter_frame, text="Service:").grid(row=0, column=4, padx=5, sticky="w")
+        self.service_filter_var = tk.StringVar()
+        service_cb = ttk.Combobox(filter_frame, textvariable=self.service_filter_var, values=["All"] + SERVICE_NAMES, state="readonly", width=15)
+        service_cb.grid(row=0, column=5, padx=5, sticky="ew")
+        service_cb.bind("<<ComboboxSelected>>", lambda e: self.load_voyages())
+        service_cb.current(0)
         
-        # Show Past
+        # Row 2: Toggles and Actions (moved to next row to prevent overflow)
         self.show_past_var = tk.BooleanVar(value=False)
         cb_past = ttk.Checkbutton(filter_frame, text="Show Past Voyages", variable=self.show_past_var, command=self.load_voyages)
-        cb_past.grid(row=0, column=4, padx=15, sticky="w")
+        cb_past.grid(row=1, column=0, columnspan=2, padx=5, pady=(5,0), sticky="w")
         
-        # Clear Button
-        ttk.Button(filter_frame, text="Clear Filters", command=self.clear_filters).grid(row=0, column=5, padx=5, sticky="e")
+        ttk.Button(filter_frame, text="Clear Filters", command=self.clear_filters).grid(row=1, column=5, padx=5, pady=(5,0), sticky="e")
         
-        filter_frame.columnconfigure(1, weight=1) # Search expands
+        filter_frame.columnconfigure(1, weight=1)
         
         # Treeview
         columns = ("vessel", "service", "voyage", "port", "date", "status")
@@ -158,6 +162,7 @@ class VesselApp(tk.Tk):
         ttk.Button(btn_frame, text="⚠️ Mark Pending", command=lambda: self.toggle_status(0)).pack(side='left', padx=5)
         ttk.Button(btn_frame, text="✏️ Edit", command=self.edit_selected).pack(side='left', padx=5)
         ttk.Button(btn_frame, text="📋 Clone Voyage", command=self.clone_selected).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="📥 Export Excel", command=self.export_to_excel).pack(side='left', padx=5) # New Button
         ttk.Button(btn_frame, text="❌ Delete Entry", command=self.delete_selected).pack(side='right', padx=5)
         ttk.Button(btn_frame, text="🔄 Refresh", command=self.load_voyages).pack(side='right', padx=5)
         
@@ -166,10 +171,63 @@ class VesselApp(tk.Tk):
     def clear_filters(self):
         self.search_var.set("")
         self.port_filter_var.set("All")
+        self.service_filter_var.set("All")
         self.show_past_var.set(False)
         self.load_voyages()
 
     # --- Logic ---
+
+    def export_to_excel(self):
+        # 1. Get filtered data (Re-run filter logic)
+        df = db_utils.get_voyages_with_details()
+        if df.empty:
+            messagebox.showinfo("Export", "No data to export.")
+            return
+
+        df['arrival_date_obj'] = pd.to_datetime(df['arrival_date']).dt.date
+        
+        # Apply Filters
+        search_text = self.search_var.get().lower()
+        if search_text:
+            mask = (df['vessel_name'].str.lower().str.contains(search_text, na=False)) | \
+                   (df['voyage_number'].str.lower().str.contains(search_text, na=False))
+            df = df[mask]
+            
+        port_filter = self.port_filter_var.get()
+        if port_filter and port_filter != "All":
+             df = df[df['port'] == port_filter]
+
+        service_filter = self.service_filter_var.get()
+        if service_filter and service_filter != "All":
+             df = df[df['service_name'] == service_filter]
+        
+        show_past = self.show_past_var.get()
+        if not show_past:
+            today = datetime.now().date()
+            df = df[df['arrival_date_obj'] >= today]
+            
+        if df.empty:
+            messagebox.showinfo("Export", "No matching data to export.")
+            return
+            
+        # 2. Ask for Save Location
+        filename = tk.filedialog.asksaveasfilename(
+            defaultextension=".xlsx",
+            filetypes=[("Excel Files", "*.xlsx"), ("All Files", "*.*")],
+            title="Export to Excel"
+        )
+        
+        if filename:
+            try:
+                # Clean up columns for export
+                export_df = df[['vessel_name', 'voyage_number', 'service_name', 'port', 'arrival_date', 'is_declared', 'uploaded_files']].copy()
+                export_df.columns = ['Vessel', 'Voyage', 'Service', 'Port', 'Arrival Date', 'Declared', 'Files']
+                export_df['Declared'] = export_df['Declared'].apply(lambda x: "Yes" if x else "No")
+                
+                export_df.to_excel(filename, index=False)
+                messagebox.showinfo("Success", f"Data exported to {filename}")
+            except Exception as e:
+                messagebox.showerror("Export Error", f"Failed to export: {e}") 
 
     def clone_selected(self):
         selected = self.tree.selection()
@@ -347,8 +405,13 @@ class VesselApp(tk.Tk):
             port_filter = self.port_filter_var.get()
             if port_filter and port_filter != "All":
                  df = df[df['port'] == port_filter]
+
+            # 3. Service Filter
+            service_filter = self.service_filter_var.get()
+            if service_filter and service_filter != "All":
+                 df = df[df['service_name'] == service_filter]
             
-            # 3. Date Filter (Show Past)
+            # 4. Date Filter (Show Past)
             if not show_past:
                 df = df[df['arrival_date_obj'] >= today]
             
