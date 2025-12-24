@@ -122,6 +122,9 @@ class VesselApp(tk.Tk):
         self.tree.tag_configure("warning", background="#ffe5cc") # Light Orange
         self.tree.tag_configure("completed", background="white")
         
+        # Bind Double Click
+        self.tree.bind("<Double-1>", lambda event: self.edit_selected())
+        
         # Buttons
         btn_frame = ttk.Frame(frame)
         btn_frame.pack(fill='x', pady=10)

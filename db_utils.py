@@ -118,7 +118,7 @@ def get_voyages_with_details():
             e.uploaded_files
         FROM voyages v
         JOIN vessels ves ON v.vessel_id = ves.id
-        LEFT JOIN ens_entries e ON v.id = e.voyage_id
+        JOIN ens_entries e ON v.id = e.voyage_id
         ORDER BY e.arrival_date DESC
     '''
     df = pd.read_sql_query(query, conn)
