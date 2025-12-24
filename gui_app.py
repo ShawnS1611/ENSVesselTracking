@@ -99,7 +99,7 @@ class VesselApp(tk.Tk):
         
         # Treeview
         columns = ("vessel", "service", "voyage", "port", "date", "status")
-        self.tree = ttk.Treeview(frame, columns=columns, show="headings", selectmode="browse")
+        self.tree = ttk.Treeview(frame, columns=columns, show="headings", selectmode="extended")
         
         self.tree.heading("vessel", text="Vessel")
         self.tree.heading("service", text="Service")
@@ -340,9 +340,11 @@ class VesselApp(tk.Tk):
         if not selected:
             return
         
-        if messagebox.askyesno("Confirm", "Delete selected entry?"):
-            entry_id = selected[0]
-            db_utils.delete_entry(entry_id)
+        count = len(selected)
+        if messagebox.askyesno("Confirm", f"Delete {count} selected entr{'ies' if count > 1 else 'y'}?"):
+            for item in selected:
+                # entry_id is stored in iid (which is item)
+                db_utils.delete_entry(item)
             self.load_voyages()
 
     def edit_selected(self):
