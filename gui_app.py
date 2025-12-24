@@ -129,13 +129,63 @@ class VesselApp(tk.Tk):
         ttk.Button(btn_frame, text="✅ Mark Declared", command=lambda: self.toggle_status(1)).pack(side='left', padx=5)
         ttk.Button(btn_frame, text="⚠️ Mark Pending", command=lambda: self.toggle_status(0)).pack(side='left', padx=5)
         ttk.Button(btn_frame, text="✏️ Edit", command=self.edit_selected).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="📋 Clone Voyage", command=self.clone_selected).pack(side='left', padx=5)
         ttk.Button(btn_frame, text="❌ Delete Entry", command=self.delete_selected).pack(side='right', padx=5)
         ttk.Button(btn_frame, text="🔄 Refresh", command=self.load_voyages).pack(side='right', padx=5)
         
         self.load_voyages()
 
     # --- Logic ---
-    
+
+    def clone_selected(self):
+        selected = self.tree.selection()
+        if not selected:
+             messagebox.showwarning("Selection", "Please select a voyage to clone.")
+             return
+        
+        entry_id = selected[0]
+        # Identify Voyage ID from entry_id
+        df = db_utils.get_voyages_with_details()
+        row = df[df['entry_id'] == int(entry_id)]
+        if row.empty:
+            return
+            
+        voyage_id = row.iloc[0]['voyage_id']
+        vessel_name = row.iloc[0]['vessel_name']
+        
+        # Popup for Cloning
+        popup = tk.Toplevel(self)
+        popup.title("Clone Voyage")
+        popup.geometry("300x250")
+        
+        ttk.Label(popup, text=f"Clone Voyage for: {vessel_name}").pack(pady=10)
+        
+        ttk.Label(popup, text="New Voyage Number:").pack(pady=5)
+        voyage_ent = ttk.Entry(popup)
+        voyage_ent.pack(pady=5)
+        
+        ttk.Label(popup, text="New Start Date (First Port):").pack(pady=5)
+        date_ent = DateEntry(popup, width=12, background='darkblue', foreground='white', borderwidth=2, date_pattern='yyyy-mm-dd')
+        date_ent.pack(pady=5)
+        
+        def do_clone():
+            new_voyage = voyage_ent.get()
+            new_date = date_ent.get()
+            
+            if not new_voyage:
+                messagebox.showerror("Error", "Voyage Number is required.")
+                return
+                
+            success, msg = db_utils.duplicate_voyage(int(voyage_id), new_voyage, new_date)
+            if success:
+                messagebox.showinfo("Success", msg)
+                self.load_voyages()
+                popup.destroy()
+            else:
+                messagebox.showerror("Error", msg)
+                
+        ttk.Button(popup, text="Create Clone", command=do_clone).pack(pady=20)
+
     def refresh_vessels(self):
         df = db_utils.get_vessels()
         if not df.empty:

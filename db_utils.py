@@ -160,6 +160,70 @@ def update_voyage(voyage_id, voyage_number, service_name=None):
     conn.commit()
     conn.close()
 
+    conn.commit()
+    conn.close()
+
+def get_voyage_entries(voyage_id):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT port, arrival_date FROM ens_entries WHERE voyage_id = ? ORDER BY arrival_date ASC", (voyage_id,))
+    entries = c.fetchall()
+    conn.close()
+    return entries
+
+def duplicate_voyage(original_voyage_id, new_voyage_number, new_start_date_str):
+    """
+    Clones a voyage and its entries.
+    new_start_date_str: YYYY-MM-DD string for the FIRST port call.
+    Subsequent ports will be offset from the first port based on the original schedule.
+    """
+    conn = get_connection()
+    c = conn.cursor()
+    
+    # 1. Get Original Voyage Details
+    c.execute("SELECT vessel_id, service_name FROM voyages WHERE id = ?", (original_voyage_id,))
+    voyage_row = c.fetchone()
+    if not voyage_row:
+        conn.close()
+        return False, "Original voyage not found."
+        
+    vessel_id, service_name = voyage_row
+    
+    # 2. Get Original Entries
+    entries = get_voyage_entries(original_voyage_id)
+    if not entries:
+        conn.close()
+        return False, "Original voyage has no entries to clone."
+        
+    # 3. Calculate Date Offsets
+    # entries is list of (port, date_str) sorted by date
+    try:
+        first_orig_date = datetime.strptime(entries[0][1], '%Y-%m-%d').date()
+        new_start_date = datetime.strptime(new_start_date_str, '%Y-%m-%d').date()
+    except ValueError:
+        conn.close()
+        return False, "Invalid date format."
+        
+    day_diff = (new_start_date - first_orig_date).days
+    
+    # 4. Create New Voyage
+    c.execute("INSERT INTO voyages (vessel_id, voyage_number, service_name) VALUES (?, ?, ?)", 
+              (vessel_id, new_voyage_number, service_name))
+    new_voyage_id = c.lastrowid
+    
+    # 5. Create New Entries with Shifted Dates
+    for port, orig_date_str in entries:
+        orig_date = datetime.strptime(orig_date_str, '%Y-%m-%d').date()
+        new_date = orig_date + pd.Timedelta(days=day_diff)
+        new_date_str = new_date.strftime('%Y-%m-%d')
+        
+        c.execute("INSERT INTO ens_entries (voyage_id, port, arrival_date, is_declared) VALUES (?, ?, ?, 0)", 
+              (new_voyage_id, port, new_date_str))
+              
+    conn.commit()
+    conn.close()
+    return True, "Voyage cloned successfully."
+
 # Initialize DB on import
 if __name__ == "__main__":
     init_db()
