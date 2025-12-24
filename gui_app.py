@@ -92,10 +92,35 @@ class VesselApp(tk.Tk):
         frame = ttk.Frame(self.tab_view, padding=10)
         frame.pack(fill='both', expand=True)
         
-        # Filters
+        # --- Filter Frame ---
+        filter_frame = ttk.LabelFrame(frame, text="Filters", padding=10)
+        filter_frame.pack(fill='x', pady=(0, 10))
+        
+        # Row 1 of filters
+        # Search
+        ttk.Label(filter_frame, text="Search (Vessel/Voyage):").grid(row=0, column=0, padx=5, sticky="w")
+        self.search_var = tk.StringVar()
+        self.search_var.trace("w", lambda name, index, mode: self.load_voyages())
+        search_entry = ttk.Entry(filter_frame, textvariable=self.search_var)
+        search_entry.grid(row=0, column=1, padx=5, sticky="ew")
+        
+        # Port Filter
+        ttk.Label(filter_frame, text="Filter Port:").grid(row=0, column=2, padx=5, sticky="w")
+        self.port_filter_var = tk.StringVar()
+        port_cb = ttk.Combobox(filter_frame, textvariable=self.port_filter_var, values=["All"] + COMMON_PORTS, state="readonly")
+        port_cb.grid(row=0, column=3, padx=5, sticky="ew")
+        port_cb.bind("<<ComboboxSelected>>", lambda e: self.load_voyages())
+        port_cb.current(0)
+        
+        # Show Past
         self.show_past_var = tk.BooleanVar(value=False)
-        cb_past = ttk.Checkbutton(frame, text="Show Past Voyages", variable=self.show_past_var, command=self.load_voyages)
-        cb_past.pack(anchor="w", pady=(0, 10))
+        cb_past = ttk.Checkbutton(filter_frame, text="Show Past Voyages", variable=self.show_past_var, command=self.load_voyages)
+        cb_past.grid(row=0, column=4, padx=15, sticky="w")
+        
+        # Clear Button
+        ttk.Button(filter_frame, text="Clear Filters", command=self.clear_filters).grid(row=0, column=5, padx=5, sticky="e")
+        
+        filter_frame.columnconfigure(1, weight=1) # Search expands
         
         # Treeview
         columns = ("vessel", "service", "voyage", "port", "date", "status")
@@ -136,6 +161,12 @@ class VesselApp(tk.Tk):
         ttk.Button(btn_frame, text="❌ Delete Entry", command=self.delete_selected).pack(side='right', padx=5)
         ttk.Button(btn_frame, text="🔄 Refresh", command=self.load_voyages).pack(side='right', padx=5)
         
+        self.load_voyages()
+
+    def clear_filters(self):
+        self.search_var.set("")
+        self.port_filter_var.set("All")
+        self.show_past_var.set(False)
         self.load_voyages()
 
     # --- Logic ---
@@ -302,6 +333,22 @@ class VesselApp(tk.Tk):
             # Handle potential parsing errors if format varies? Assuming ISO format YYYY-MM-DD from sqlite
             df['arrival_date_obj'] = pd.to_datetime(df['arrival_date']).dt.date
             
+            # --- Apply Filters ---
+            
+            # 1. Search Text (Vessel Name or Voyage Number)
+            search_text = self.search_var.get().lower()
+            if search_text:
+                # Boolean indexing with OR
+                mask = (df['vessel_name'].str.lower().str.contains(search_text, na=False)) | \
+                       (df['voyage_number'].str.lower().str.contains(search_text, na=False))
+                df = df[mask]
+                
+            # 2. Port Filter
+            port_filter = self.port_filter_var.get()
+            if port_filter and port_filter != "All":
+                 df = df[df['port'] == port_filter]
+            
+            # 3. Date Filter (Show Past)
             if not show_past:
                 df = df[df['arrival_date_obj'] >= today]
             
