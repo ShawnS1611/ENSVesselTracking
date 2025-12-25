@@ -1,0 +1,18 @@
+{
+    "port_mappings": {
+        "CYLMS": "CY000510",
+        "ITSAL": "IT084100",
+        "ESCAS": "ES999811",
+        "PTLEI": "PT000340",
+        "GBLIV": "GB000080",
+        "IEDUB": "IEDUB100",
+        "BEANR": "BE101000",
+        "FRMRS": "FR002730",
+        "ESBCN": "ES000811",
+        "ITGOA": "IT261101",
+        "TRALI": "TR330100",
+        "MACAS": "ES001211",
+        "ITRAV": "IT081100",
+        "ITVCE": "IT091100"
+    }
+}

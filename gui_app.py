@@ -4,6 +4,9 @@ import db_utils
 from datetime import datetime
 import pandas as pd
 from tkcalendar import DateEntry
+import xml_utils
+import config_manager
+import os
 
 COMMON_PORTS = [
 "ESVLC","GBFLX","BEANR","NLRTM","ITSAL","GBLIV","IEDUB","CYLMS"
@@ -28,15 +31,101 @@ class VesselApp(tk.Tk):
         
         # Tabs
         self.notebook = ttk.Notebook(self)
+        self.tab_home = ttk.Frame(self.notebook)
         self.tab_input = ttk.Frame(self.notebook)
         self.tab_view = ttk.Frame(self.notebook)
+        self.tab_settings = ttk.Frame(self.notebook)
         
+        self.notebook.add(self.tab_home, text="🏠 Home")
         self.notebook.add(self.tab_input, text="Input Voyage")
         self.notebook.add(self.tab_view, text="View & Manage")
+        self.notebook.add(self.tab_settings, text="Settings")
         self.notebook.pack(expand=True, fill='both')
         
+        self.setup_home_tab()
         self.setup_input_tab()
         self.setup_view_tab()
+        self.setup_settings_tab()
+        
+        # Bind tab change to refresh home
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_change)
+
+    def on_tab_change(self, event):
+        selected_tab = self.notebook.select()
+        tab_text = self.notebook.tab(selected_tab, "text")
+        if "Home" in tab_text:
+            self.refresh_home_tab()
+
+    def setup_home_tab(self):
+        # Header
+        header = ttk.Frame(self.tab_home, padding=20)
+        header.pack(fill='x')
+        ttk.Label(header, text="🚢 ENS Vessel Tracking Dashboard", font=("Arial", 16, "bold")).pack(side='left')
+        
+        # Stats Area
+        stats_frame = ttk.Frame(self.tab_home, padding=20)
+        stats_frame.pack(fill='x')
+        
+        self.lbl_stat_voyages = ttk.Label(stats_frame, text="Active Voyages: -", font=("Arial", 12))
+        self.lbl_stat_voyages.pack(side='left', padx=20)
+        
+        self.lbl_stat_upcoming = ttk.Label(stats_frame, text="Arrivals (7 days): -", font=("Arial", 12))
+        self.lbl_stat_upcoming.pack(side='left', padx=20)
+        
+        # Upcoming Table
+        content_frame = ttk.LabelFrame(self.tab_home, text="Upcoming Arrivals (Next 7 Days)", padding=10)
+        content_frame.pack(fill='both', expand=True, padx=20, pady=10)
+        
+        cols = ("date", "vessel", "voyage", "port", "service")
+        self.home_tree = ttk.Treeview(content_frame, columns=cols, show="headings")
+        
+        self.home_tree.heading("date", text="Arrival Date")
+        self.home_tree.heading("vessel", text="Vessel")
+        self.home_tree.heading("voyage", text="Voyage")
+        self.home_tree.heading("port", text="Port")
+        self.home_tree.heading("service", text="Service")
+        
+        self.home_tree.column("date", width=100)
+        self.home_tree.column("vessel", width=150)
+        self.home_tree.column("voyage", width=100)
+        self.home_tree.column("port", width=80)
+        self.home_tree.column("service", width=150)
+        
+        self.home_tree.pack(fill='both', expand=True)
+        
+        # Refresh Button
+        ttk.Button(self.tab_home, text="🔄 Refresh Dashboard", command=self.refresh_home_tab).pack(pady=10)
+
+    def refresh_home_tab(self):
+        # Clear Tree
+        for item in self.home_tree.get_children():
+            self.home_tree.delete(item)
+            
+        # Get Data
+        df = db_utils.get_upcoming_entries(7)
+        if not df.empty:
+            for _, row in df.iterrows():
+                self.home_tree.insert("", "end", values=(
+                    row['arrival_date'],
+                    row['vessel'],
+                    row['voyage_number'],
+                    row['port'],
+                    row['service_name']
+                ))
+            count_upcoming = len(df)
+        else:
+            count_upcoming = 0
+            
+        # Update Stats
+        # Active Voyages (all in DB for now, maybe filter by recent later)
+        all_voyages = db_utils.get_voyages_with_details()
+        if not all_voyages.empty:
+            unique_voyages = all_voyages['voyage_number'].nunique()
+        else:
+            unique_voyages = 0
+            
+        self.lbl_stat_voyages.config(text=f"Active Voyages: {unique_voyages}")
+        self.lbl_stat_upcoming.config(text=f"Arrivals (7 days): {count_upcoming}")
         
     def setup_input_tab(self):
         frame = ttk.Frame(self.tab_input, padding=20)
@@ -570,6 +659,238 @@ class VesselApp(tk.Tk):
             popup.destroy()
             
         ttk.Button(popup, text="Save Changes", command=save_edit).pack(pady=20)
+
+        # --- XML Batch Update Section (Embedded) ---
+        ttk.Separator(popup, orient='horizontal').pack(fill='x', pady=10)
+        ttk.Label(popup, text="Advanced: Batch Update XMLs", font=("Arial", 10, "bold")).pack(pady=5)
+        
+        # Calculate Default Path
+        voyage_val_for_path = values[2] # Use the voyage from the tree (or entry, but entry might be edited)
+        # Assuming we want based on what is currently saved/selected
+        default_path = os.path.join(r"C:\Users\shawn\Documents\Coding\Python\XMLs", str(voyage_val_for_path))
+        
+        # UI Elements
+        path_frame = ttk.Frame(popup)
+        path_frame.pack(fill='x', padx=10)
+        
+        ttk.Label(path_frame, text="XML Directory:").pack(anchor='w')
+        
+        path_var = tk.StringVar(value=default_path)
+        path_ent = ttk.Entry(path_frame, textvariable=path_var)
+        path_ent.pack(fill='x', pady=2)
+        path_ent.config(state='disabled') # Default to disabled
+        
+        def toggle_path_edit():
+            if path_edit_var.get():
+                path_ent.config(state='normal')
+            else:
+                path_ent.config(state='disabled')
+                
+        path_edit_var = tk.BooleanVar(value=False)
+        chk_edit = ttk.Checkbutton(path_frame, text="Edit Path", variable=path_edit_var, command=toggle_path_edit)
+        chk_edit.pack(anchor='w')
+        
+        def run_embedded_xml_update():
+            # 1. Gather Data (from the EDIT fields, so it matches what they are about to save/have saved)
+            curr_voyage = voyage_ent.get()
+            curr_port = port_ent.get()
+            curr_date = date_ent.get()
+            curr_service = service_ent.get() # Not used for update but context
+            vessel_name = values[0] # From original selection (read-only in this popup anyway)
+
+            # Lookup IMO
+            df_vessels = db_utils.get_vessels()
+            try:
+                imo = df_vessels[df_vessels['name'] == vessel_name].iloc[0]['imo_number']
+            except IndexError:
+                imo = ""
+            
+            target_dir = path_var.get()
+            
+            # Validation
+            if not os.path.exists(target_dir):
+                if messagebox.askyesno("Directory Missing", f"Directory not found:\n{target_dir}\n\nContinue anyway (will look for files)?"):
+                     pass 
+                else: 
+                     return
+
+            # Subdirectory Selection
+            subdirs = [d for d in os.listdir(target_dir) if os.path.isdir(os.path.join(target_dir, d))]
+            
+            # If no subdirectories, fall back to updating the root folder recursively
+            if not subdirs:
+                if messagebox.askyesno("Confirm Update", f"No subdirectories found in:\n{target_dir}\n\nUpdate all XML files in this directory recursively?\n\nValues:\nVoyage: {curr_voyage}\nIMO: {imo}\nPort: {curr_port}\nDate: {curr_date}"):
+                    count, errors = xml_utils.update_xml_directory(target_dir, curr_voyage, imo, curr_port, curr_date)
+                    _show_results(count, errors)
+                return
+
+            # Show Selection Popup
+            sel_popup = tk.Toplevel(xml_pop_frame) # Using the frame or popup as master
+            sel_popup.title("Select Subdirectories")
+            sel_popup.geometry("400x500")
+            
+            ttk.Label(sel_popup, text="Select folders to update:", font=("Arial", 10, "bold")).pack(pady=10)
+            
+            list_frame = ttk.Frame(sel_popup)
+            list_frame.pack(fill='both', expand=True, padx=10)
+            
+            scrollbar = ttk.Scrollbar(list_frame)
+            scrollbar.pack(side='right', fill='y')
+            
+            lb = tk.Listbox(list_frame, selectmode='multiple', yscrollcommand=scrollbar.set, height=15)
+            lb.pack(side='left', fill='both', expand=True)
+            scrollbar.config(command=lb.yview)
+            
+            for d in subdirs:
+                lb.insert(tk.END, d)
+                
+            # Select All by default
+            lb.select_set(0, tk.END)
+            
+            btn_frame = ttk.Frame(sel_popup)
+            btn_frame.pack(fill='x', pady=5)
+            
+            def select_all(): lb.select_set(0, tk.END)
+            def select_none(): lb.selection_clear(0, tk.END)
+            
+            ttk.Button(btn_frame, text="Select All", command=select_all).pack(side='left', padx=10)
+            ttk.Button(btn_frame, text="Clear Selection", command=select_none).pack(side='left', padx=10)
+            
+            def confirm_update():
+                selected_indices = lb.curselection()
+                if not selected_indices:
+                    messagebox.showwarning("Selection", "No folders selected.", parent=sel_popup)
+                    return
+                
+                selected_folders = [subdirs[i] for i in selected_indices]
+                
+                if not messagebox.askyesno("Confirm", f"Update {len(selected_folders)} folders?\n\nValues:\nVoyage: {curr_voyage}\nIMO: {imo}\nDate: {curr_date}", parent=sel_popup):
+                    return
+                
+                total_count = 0
+                all_errors = []
+                
+                for folder in selected_folders:
+                    full_path = os.path.join(target_dir, folder)
+                    count, errors = xml_utils.update_xml_directory(full_path, curr_voyage, imo, curr_port, curr_date)
+                    total_count += count
+                    all_errors.extend(errors)
+                    
+                sel_popup.destroy()
+                _show_results(total_count, all_errors)
+
+            ttk.Button(sel_popup, text="✅ Confirm & Update", command=confirm_update).pack(pady=15, fill='x', padx=20)
+
+        def _show_results(count, errors):
+            msg = f"Updated {count} files."
+            if errors:
+                msg += f"\n\nErrors ({len(errors)}): check console/log."
+                messagebox.showwarning("Update Result", msg)
+            else:
+                messagebox.showinfo("Update Result", msg)
+        
+        # Keep reference to popup for parenting
+        xml_pop_frame = path_frame 
+
+        ttk.Button(popup, text="🚀 Run XML Update Now", command=run_embedded_xml_update).pack(pady=10)
+
+    def setup_settings_tab(self):
+        frame = ttk.Frame(self.tab_settings, padding=20)
+        frame.pack(fill='both', expand=True)
+
+        ttk.Label(frame, text="Port Mappings (Config)", font=("Arial", 12, "bold")).pack(anchor='w', pady=(0, 10))
+        
+        # Splitter or columns
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(fill='x', pady=5)
+        
+        self.settings_tree = ttk.Treeview(frame, columns=("port", "ref"), show="headings", height=15)
+        self.settings_tree.heading("port", text="Port Code")
+        self.settings_tree.heading("ref", text="Ref Num (Customs Office)")
+        self.settings_tree.column("port", width=150)
+        self.settings_tree.column("ref", width=250)
+        self.settings_tree.pack(fill='both', expand=True)
+        
+        # Load Data
+        self.refresh_settings_tree()
+        
+        # Controls
+        ttk.Button(btn_frame, text="➕ Add Mapping", command=self.add_mapping_popup).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="✏️ Edit", command=self.edit_mapping_popup).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="❌ Delete", command=self.delete_mapping).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="🔄 Reload from File", command=self.refresh_settings_tree).pack(side='right', padx=5)
+
+    def refresh_settings_tree(self):
+        for item in self.settings_tree.get_children():
+            self.settings_tree.delete(item)
+        
+        settings = config_manager.load_settings()
+        mappings = settings.get("port_mappings", {})
+        
+        for port, ref in mappings.items():
+            self.settings_tree.insert("", "end", values=(port, ref))
+            
+    def save_mapping_changes(self, new_mappings):
+        settings = config_manager.load_settings()
+        settings["port_mappings"] = new_mappings
+        if config_manager.save_settings(settings):
+             self.refresh_settings_tree()
+             messagebox.showinfo("Success", "Settings saved.")
+        else:
+             messagebox.showerror("Error", "Failed to save settings.")
+
+    def add_mapping_popup(self):
+         self.mapping_popup("Add Mapping")
+
+    def edit_mapping_popup(self):
+        selected = self.settings_tree.selection()
+        if not selected: return
+        item = self.settings_tree.item(selected[0])
+        self.mapping_popup("Edit Mapping", item['values'][0], item['values'][1])
+
+    def mapping_popup(self, title, port="", ref=""):
+        win = tk.Toplevel(self)
+        win.title(title)
+        win.geometry("300x150")
+        
+        ttk.Label(win, text="Port Code:").pack(pady=5)
+        ent_port = ttk.Entry(win)
+        ent_port.insert(0, port)
+        ent_port.pack()
+        if title == "Edit Mapping": ent_port.config(state='disabled') # Key usually shouldn't change easily or it's a delete/add
+        
+        ttk.Label(win, text="Ref Num:").pack(pady=5)
+        ent_ref = ttk.Entry(win)
+        ent_ref.insert(0, ref)
+        ent_ref.pack()
+        
+        def save():
+            p = ent_port.get().strip()
+            r = ent_ref.get().strip()
+            if not p or not r:
+                messagebox.showwarning("Input", "Both fields required.")
+                return
+            
+            settings = config_manager.load_settings()
+            mappings = settings.get("port_mappings", {})
+            mappings[p] = r
+            
+            self.save_mapping_changes(mappings)
+            win.destroy()
+            
+        ttk.Button(win, text="Save", command=save).pack(pady=10)
+
+    def delete_mapping(self):
+        selected = self.settings_tree.selection()
+        if not selected: return
+        port = self.settings_tree.item(selected[0])['values'][0]
+        
+        if messagebox.askyesno("Confirm", f"Delete mapping for {port}?"):
+            settings = config_manager.load_settings()
+            mappings = settings.get("port_mappings", {})
+            if port in mappings:
+                del mappings[port]
+                self.save_mapping_changes(mappings)
 
 if __name__ == "__main__":
     app = VesselApp()

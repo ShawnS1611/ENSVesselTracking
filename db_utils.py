@@ -170,6 +170,43 @@ def get_voyage_entries(voyage_id):
     entries = c.fetchall()
     conn.close()
     return entries
+    
+def get_upcoming_entries(days=7):
+    """
+    Returns entries arriving between today and today + days.
+    """
+    conn = get_connection()
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    # For SQLite, we can compute end date or just filter in Python.
+    # Simple SQL date compare works if format is YYYY-MM-DD
+    
+    # We'll fetch future entries >= today, then filter top N or by date in Python if we want strict range
+    # Or strict SQL: date('now') to date('now', '+7 days')
+    
+    query = """
+    SELECT 
+        v.name as vessel, 
+        vo.voyage_number, 
+        vo.service_name,
+        e.port, 
+        e.arrival_date,
+        e.id as entry_id
+    FROM ens_entries e
+    JOIN voyages vo ON e.voyage_id = vo.id
+    JOIN vessels v ON vo.vessel_id = v.id
+    WHERE e.arrival_date >= date('now') 
+    AND e.arrival_date <= date('now', '+' || ? || ' days')
+    ORDER BY e.arrival_date ASC
+    """
+    
+    try:
+        df = pd.read_sql_query(query, conn, params=(str(days),))
+    except Exception as e:
+        print(f"Error fetching upcoming: {e}")
+        df = pd.DataFrame()
+        
+    conn.close()
+    return df
 
 def duplicate_voyage(original_voyage_id, new_voyage_number, new_start_date_str):
     """
