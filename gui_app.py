@@ -1,9 +1,12 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+import ttkbootstrap as ttk
+from ttkbootstrap.constants import *
+from tkinter import messagebox, filedialog
+import tkinter as tk
 import db_utils
 from datetime import datetime
 import pandas as pd
-from tkcalendar import DateEntry
+from ttkbootstrap.widgets import DateEntry
 import xml_utils
 import config_manager
 import os
@@ -20,9 +23,9 @@ SERVICE_NAMES = [
     "Adriatic"
 ]
 
-class VesselApp(tk.Tk):
+class VesselApp(ttk.Window):
     def __init__(self):
-        super().__init__()
+        super().__init__(themename="flatly")
         self.title("Vessel ENS Tracker")
         self.geometry("1000x700") # Increased size to fit filters
         
@@ -73,7 +76,7 @@ class VesselApp(tk.Tk):
         self.lbl_stat_upcoming.pack(side='left', padx=20)
         
         # Upcoming Table
-        content_frame = ttk.LabelFrame(self.tab_home, text="Upcoming Arrivals (Next 7 Days)", padding=10)
+        content_frame = ttk.Labelframe(self.tab_home, text="Upcoming Arrivals (Next 7 Days)", padding=10)
         content_frame.pack(fill='both', expand=True, padx=20, pady=10)
         
         cols = ("date", "vessel", "voyage", "port", "service")
@@ -169,7 +172,7 @@ class VesselApp(tk.Tk):
             lbl_date = ttk.Label(frame, text=f"Date {i+1}:")
             lbl_date.grid(row=6+i, column=2, sticky="e", padx=5, pady=2)
             
-            ent_date = DateEntry(frame, width=12, background='darkblue', foreground='white', borderwidth=2, date_pattern='yyyy-mm-dd')
+            ent_date = DateEntry(frame, width=12, dateformat='%Y-%m-%d', bootstyle="primary")
             ent_date.grid(row=6+i, column=3, sticky="ew", padx=5, pady=2)
             
             self.entry_widgets.append((ent_port, ent_date))
@@ -182,7 +185,7 @@ class VesselApp(tk.Tk):
         frame.pack(fill='both', expand=True)
         
         # --- Filter Frame ---
-        filter_frame = ttk.LabelFrame(frame, text="Filters", padding=10)
+        filter_frame = ttk.Labelframe(frame, text="Filters", padding=10)
         filter_frame.pack(fill='x', pady=(0, 10))
         
         # Row 1: Search and specific filters
@@ -247,13 +250,13 @@ class VesselApp(tk.Tk):
         btn_frame = ttk.Frame(frame)
         btn_frame.pack(fill='x', pady=10)
         
-        ttk.Button(btn_frame, text="✅ Mark Declared", command=lambda: self.toggle_status(1)).pack(side='left', padx=5)
-        ttk.Button(btn_frame, text="⚠️ Mark Pending", command=lambda: self.toggle_status(0)).pack(side='left', padx=5)
-        ttk.Button(btn_frame, text="✏️ Edit", command=self.edit_selected).pack(side='left', padx=5)
-        ttk.Button(btn_frame, text="📋 Clone Voyage", command=self.clone_selected).pack(side='left', padx=5)
-        ttk.Button(btn_frame, text="📥 Export Excel", command=self.export_to_excel).pack(side='left', padx=5) # New Button
-        ttk.Button(btn_frame, text="❌ Delete Entry", command=self.delete_selected).pack(side='right', padx=5)
-        ttk.Button(btn_frame, text="🔄 Refresh", command=self.load_voyages).pack(side='right', padx=5)
+        ttk.Button(btn_frame, text="✅ Mark Declared", bootstyle="success", command=lambda: self.toggle_status(1)).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="❌ Unmark Declared", bootstyle="warning", command=lambda: self.toggle_status(0)).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="✏️ Edit", bootstyle="info", command=self.edit_selected).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="📋 Clone Voyage", bootstyle="secondary", command=self.clone_selected).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="📥 Export Excel", bootstyle="success-outline", command=self.export_to_excel).pack(side='left', padx=5) # New Button
+        ttk.Button(btn_frame, text="❌ Delete Entry", bootstyle="danger", command=self.delete_selected).pack(side='right', padx=5)
+        ttk.Button(btn_frame, text="🔄 Refresh", bootstyle="primary-outline", command=self.load_voyages).pack(side='right', padx=5)
         
         self.load_voyages()
 
@@ -346,7 +349,7 @@ class VesselApp(tk.Tk):
         voyage_ent.pack(pady=5)
         
         ttk.Label(popup, text="New Start Date (First Port):").pack(pady=5)
-        date_ent = DateEntry(popup, width=12, background='darkblue', foreground='white', borderwidth=2, date_pattern='yyyy-mm-dd')
+        date_ent = DateEntry(popup, width=12, dateformat='%Y-%m-%d', bootstyle="primary")
         date_ent.pack(pady=5)
         
         def do_clone():
@@ -589,8 +592,10 @@ class VesselApp(tk.Tk):
         
         # Date
         ttk.Label(popup, text="Arrival Date (YYYY-MM-DD):").pack(pady=2)
-        date_ent = DateEntry(popup, width=12, background='darkblue', foreground='white', borderwidth=2, date_pattern='yyyy-mm-dd')
-        date_ent.set_date(values[4]) # Corrected Index
+        date_ent = DateEntry(popup, width=12, startdate=datetime.strptime(values[4], '%Y-%m-%d').date(), dateformat='%Y-%m-%d', bootstyle="primary")
+        # date_ent.entry.insert(0, values[4]) # ttkbootstrap DateEntry manages its own entry updates via variable usually, or startdate.
+        # However, for editing, we set startdate.
+        
         date_ent.pack(pady=2)
         
         # --- File Upload Tracking (West Coast Service) ---
@@ -617,7 +622,7 @@ class VesselApp(tk.Tk):
         IEDUB_CODES = ["CYLMS", "ILHFA", "ILASH", "TRISK", "EGALY", "ITSAL", "ESCAS", "PTLEI", "GBLIV"]
 
         if service_name_val == "West Coast UK" and port_name_val in ["GBLIV", "IEDUB"]:
-            frame_files = ttk.LabelFrame(popup, text=f"File Check - {port_name_val}", padding=10)
+            frame_files = ttk.Labelframe(popup, text=f"File Check - {port_name_val}", padding=10)
             frame_files.pack(fill='both', expand=True, padx=10, pady=10)
             
             codes_to_show = GBLIV_CODES if port_name_val == "GBLIV" else IEDUB_CODES

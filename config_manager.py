@@ -1,7 +1,13 @@
 import json
 import os
+import sys
 
-SETTINGS_FILE = "settings.json"
+def get_app_path():
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+SETTINGS_FILE = os.path.join(get_app_path(), "settings.json")
 
 def load_settings():
     """Loads settings from JSON file. Returns default structure if missing."""

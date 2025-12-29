@@ -13,10 +13,18 @@ python -m PyInstaller --noconfirm --onefile --windowed --name "VesselTracking" ^
     --hidden-import "pandas" ^
     --hidden-import "tkcalendar" ^
     --hidden-import "openpyxl" ^
+    --exclude-module "matplotlib" ^
+    --exclude-module "scipy" ^
+    --exclude-module "torch" ^
+    --exclude-module "tensorflow" ^
+    --exclude-module "IPython" ^
+    --exclude-module "notebook" ^
+    --exclude-module "setuptools" ^
     gui_app.py
 
-echo Copying settings file...
+echo Copying data files...
 copy settings.json dist\settings.json >nul
+copy vessels.db dist\vessels.db >nul
 
 echo Build complete. Check the 'dist' folder.
 pause

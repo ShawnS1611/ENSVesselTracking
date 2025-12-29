@@ -1,8 +1,15 @@
 import sqlite3
 import pandas as pd
 from datetime import datetime
+import os
+import sys
 
-DB_NAME = "vessels.db"
+def get_app_path():
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+DB_NAME = os.path.join(get_app_path(), "vessels.db")
 
 def get_connection():
     return sqlite3.connect(DB_NAME)
